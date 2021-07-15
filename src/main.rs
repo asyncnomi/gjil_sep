@@ -107,7 +107,7 @@ fn main() {
 }
 
 fn write(j: i32, output: String) -> std::io::Result<()> {
-    let mut file = File::create(format!("{}{}{}", "./GJIL_TR_",j,".txt"))?;
+    let mut file = File::create(format!("{}{}{}", "./GJIL_TR_",j,".doc"))?;
     file.write_all(output.as_bytes())?;
     Ok(())
 }
