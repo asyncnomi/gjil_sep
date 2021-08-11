@@ -103,6 +103,7 @@ fn main() {
                }
            }
        }
+       del("_GJIL.doc");
    }
 }
 
@@ -116,4 +117,9 @@ fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where P: AsRef<Path>, {
     let file = File::open(filename)?;
     Ok(io::BufReader::new(file).lines())
+}
+
+fn del(file: &str) -> std::io::Result<()> {
+    std::fs::remove_file(file)?;
+    Ok(())
 }
