@@ -16,10 +16,12 @@ use encoding_rs_io::DecodeReaderBytesBuilder;
 static PATH: &str = "/_GJIL.doc";
 static MARKER: [&str; 3] = ["NOD   :", "CHEF DE SERVICE :", "AFFECTATION          :"];
 static PAGE: [&str; 3] = ["PAGE", "FEUILLET NO:", "FICHE  :"];
-static DATA: [[usize; 6]; 3] = [
-    [MARKER[0].len()+1,6,8,PAGE[0].len(),5,7], // [Marker length+1, identifier length, Number of line to pop and push, Page marker length, Page Number Length, Number of line to pop to find the page marker]
-    [MARKER[1].len()+1,6,13,PAGE[1].len(),6,2],
-    [MARKER[2].len()+1+4,9,10,PAGE[2].len(),7,6] // The first 4 chars of the AFFECTATION number are not used to identify a Client
+static POP_STOP: [&str; 3] = ["PAGE ", "REF ", "REF "];
+static STOP_TYPE: [&str; 3] = ["contain", "contain", "contain"];
+static DATA: [[usize; 4]; 3] = [
+    [MARKER[0].len()+1,6,PAGE[0].len(),5], // [Marker length+1, identifier length, Page marker length, Page Number Length]
+    [MARKER[1].len()+1,6,PAGE[1].len(),6],
+    [MARKER[2].len()+1+4,9,PAGE[2].len(),7] // The first 4 chars of the AFFECTATION number are not used to identify a Client
 ];
 
 fn main() {
@@ -63,7 +65,7 @@ fn main() {
                        // OUTPUT FILES
                        let mut j: i32 = 0;
                        for client in client.iter() {
-                           match write(j, format!("{}{}{}", top_separator,client,end_separator), &file_path[0]) {
+                           match write(j, format!("{}\n{}\n{}", top_separator,client,end_separator), &file_path[0]) {
                                Err(e) => log(&format!("{:?}", e)),
                                _ => ()
                            }
@@ -76,23 +78,20 @@ fn main() {
                            }
                            log("Renaming...");
                            run_vbs("rename", &current_path, "", ""); // Running the renaming macro
-                           // List file in file_path[1]
-                           // For each run its macro
-                           // And between each, rename the file outputed in file_path[2]
                            log("Applying macro to :");
-                           let list = visit_dirs(Path::new(&file_path[1]));
+                           let list = visit_dirs(Path::new(&file_path[1])); // Get all the file in the input dir
                            if let Ok(list) = list {
                                for path in list.iter() {
                                    log(&format!("\n{}", path));
-                                   let name = path.split("\\");
-                                   let mut tmp: Vec<String> = Vec::new();
-                                   for i in name {
-                                       tmp.push(i.to_string());
+                                   let name = path.split("\\");            // Only keep
+                                   let mut tmp: Vec<String> = Vec::new();  // the name
+                                   for i in name {                         // of the
+                                       tmp.push(i.to_string());            // file
                                    }
-                                   let name = tmp.last().unwrap().replace(".doc", "");
+                                   let name = tmp.last().unwrap().replace(".doc", ""); // remove the extension
                                    let mut tmp_name: String = String::new();
                                    let mut success: bool = false;
-                                   for i in name.replace("-", "_").split("_") {
+                                   for i in name.replace("-", "_").split("_") { // Iterate through each part of the name to find the corresponding macro (CTl_RSP_OP : CTL -> CTL_RSP -> CTL_RSP_OP)
                                        tmp_name.push_str(i);
                                        if !blacklist.contains(&tmp_name.to_string()) {
                                            log(&format!("trying: {}", tmp_name));
@@ -145,12 +144,19 @@ fn main() {
                            if format!("{}", detected_id) != format!("{}", identifier) { // Check if this client is the same as the previous one
                                identifier = detected_id.to_string(); // New client detected -> save it as the current one
                                let mut buff: Vec<String> = Vec::new();
-                               for _l in 0..DATA[k][2] {
-                                   buff.push(tmp.pop().unwrap()); // Store and remove the lines related to the new client which are still in the previous one Vec's
+                               if STOP_TYPE[k] == "contain" {
+                                   while !tmp.last().unwrap().contains(POP_STOP[k]) {
+                                       buff.push(tmp.pop().unwrap());
+                                   }
                                }
-                               let page_ln = &buff[DATA[k][5]]; // get the line where the page marker is
-                               let pos2 = (page_ln.find(PAGE[k])).unwrap(); // ges the index of the page marker
-                               log(&format!("{}{}{}{}", "New Client Detected: ",detected_id, "  PAGE: ", &page_ln[pos2+DATA[k][3]..pos2+DATA[k][3]+DATA[k][4]])); // Extract the Page number and print it
+                               buff.push(tmp.pop().unwrap()); // The last line wasn't transfert due to the "while"
+                               for i in buff.iter() {
+                                   if i.contains(PAGE[k]) { // get the line where the page marker is
+                                       let pos2 = (i.find(PAGE[k])).unwrap(); // ges the index of the page marker
+                                       log(&format!("{}{}{}{}", "New Client Detected: ",detected_id, "  PAGE: ", &i[pos2+DATA[k][2]..pos2+DATA[k][2]+DATA[k][3]])); // Extract the Page number and print it
+                                       break;
+                                   }
+                               }
                                if i != 0 {
                                    client.push(String::new());
                                    for line in tmp.iter() {
@@ -159,7 +165,7 @@ fn main() {
                                }
                                i += 1;
                                tmp = Vec::new();
-                               for _l in 0..DATA[k][2] {
+                               for _l in 0..buff.len() {
                                    tmp.push(buff.pop().unwrap().to_string()); // Put back the line which was remove to the new client tmp vec
                                }
                            }
