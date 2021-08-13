@@ -2,6 +2,9 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::{self, BufRead};
 use std::path::Path;
+use std::process::Command;
+use encoding_rs::WINDOWS_1252;
+use encoding_rs_io::DecodeReaderBytesBuilder;
 
 //////////////////////////////////////////
 //// MODE 0 -> INIT                   ////
@@ -10,7 +13,7 @@ use std::path::Path;
 //// MODE 3 -> READ CLIENT DATA       ////
 //////////////////////////////////////////
 
-static PATH: &str = "./_GJIL.doc";
+static PATH: &str = "/_GJIL.doc";
 static MARKER: [&str; 3] = ["NOD   :", "CHEF DE SERVICE :", "AFFECTATION          :"];
 static PAGE: [&str; 3] = ["PAGE", "FEUILLET NO:", "FICHE  :"];
 static DATA: [[usize; 6]; 3] = [
@@ -20,7 +23,8 @@ static DATA: [[usize; 6]; 3] = [
 ];
 
 fn main() {
-    println!("\n|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾|\n|  GJIL SPLITTER Output  |\n|________________________|\n");
+    reset_log();
+    log("\n|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾|\n|  GJIL SPLITTER Output  |\n|________________________|\n");
     let mut mode: i32 = 0;
     let mut top_separator = String::new();
     let mut end_separator = String::new();
@@ -28,7 +32,12 @@ fn main() {
     let mut tmp: Vec<String> = Vec::new();
     let mut i: usize = 0;
     let mut identifier = String::new();
-    if let Ok(lines) = read_lines(&PATH) {
+
+    let current_path = get_current_path(); // Get the path of the currently running executable
+    let file_path = get_path(&current_path); // [Input file, Output file] as configure in the excel
+    let mut blacklist: Vec<String> = Vec::new(); // A Vec of failed macro
+
+    if let Ok(lines) = read_lines(&format!("{}{}", file_path[0], PATH)) {
        for line in lines {
            if let Ok(ip) = line {
                if ip.contains("TOP SEPARATOR") {
@@ -45,20 +54,76 @@ fn main() {
                    if mode == 1 {
                        top_separator.push_str(&format!("{}{}",ip,"\n"));
                        mode = 3;
-                       println!("{}", top_separator);
+                       log(&format!("{}", top_separator));
                        continue;
                    }
                    else if mode == 2 {
                        end_separator.push_str(&format!("{}{}",ip,"\n"));
-                       println!("{}{}", "\n",end_separator);
+                       log(&format!("{}{}", "\n",end_separator));
                        // OUTPUT FILES
                        let mut j: i32 = 0;
                        for client in client.iter() {
-                           match write(j, format!("{}{}{}", top_separator,client,end_separator)) {
-                               Err(e) => println!("{:?}", e),
+                           match write(j, format!("{}{}{}", top_separator,client,end_separator), &file_path[0]) {
+                               Err(e) => log(&format!("{:?}", e)),
                                _ => ()
                            }
                            j += 1;
+                       }
+                       if j > 0 {
+                           match del(&format!("{}/_GJIL.doc", file_path[0])) {
+                               Err(e) => log(&format!("{:?}", e)),
+                               _ => ()
+                           }
+                           log("Renaming...");
+                           run_vbs("rename", &current_path, "", ""); // Running the renaming macro
+                           // List file in file_path[1]
+                           // For each run its macro
+                           // And between each, rename the file outputed in file_path[2]
+                           log("Applying macro to :");
+                           let list = visit_dirs(Path::new(&file_path[1]));
+                           if let Ok(list) = list {
+                               for path in list.iter() {
+                                   log(&format!("\n{}", path));
+                                   let name = path.split("\\");
+                                   let mut tmp: Vec<String> = Vec::new();
+                                   for i in name {
+                                       tmp.push(i.to_string());
+                                   }
+                                   let name = tmp.last().unwrap().replace(".doc", "");
+                                   let mut tmp_name: String = String::new();
+                                   let mut success: bool = false;
+                                   for i in name.replace("-", "_").split("_") {
+                                       tmp_name.push_str(i);
+                                       if !blacklist.contains(&tmp_name.to_string()) {
+                                           log(&format!("trying: {}", tmp_name));
+                                           run_vbs("macro", path, &tmp_name, &current_path);
+                                           if get_macro_result() {
+                                               log(&format!("Macro successfully found ({}) and apply to {}.doc", tmp_name, name));
+                                               success = true;
+                                               break;
+                                           } else {
+                                               blacklist.push(tmp_name.to_string());
+                                           }
+                                       }
+                                       tmp_name.push_str("_");
+                                   }
+                                   if success {
+                                       // Rename the file in the output
+                                   } else {
+                                       log(&format!("Any macro found for {}.doc", name));
+                                   }
+                               }
+                           }
+                           match del("./log_macro.txt") {
+                               Err(e) => log(&format!("{:?}", e)),
+                               _ => ()
+                           }
+                           match del("./config.txt") {
+                               Err(e) => log(&format!("{:?}", e)),
+                               _ => ()
+                           }
+                       } else {
+                           log("No client found in the _GJIL.doc file");
                        }
                    }
                }
@@ -85,7 +150,7 @@ fn main() {
                                }
                                let page_ln = &buff[DATA[k][5]]; // get the line where the page marker is
                                let pos2 = (page_ln.find(PAGE[k])).unwrap(); // ges the index of the page marker
-                               println!("{}{}{}{}", "New Client Detected: ",detected_id, "  PAGE: ", &page_ln[pos2+DATA[k][3]..pos2+DATA[k][3]+DATA[k][4]]); // Extract the Page number and print it
+                               log(&format!("{}{}{}{}", "New Client Detected: ",detected_id, "  PAGE: ", &page_ln[pos2+DATA[k][3]..pos2+DATA[k][3]+DATA[k][4]])); // Extract the Page number and print it
                                if i != 0 {
                                    client.push(String::new());
                                    for line in tmp.iter() {
@@ -101,25 +166,114 @@ fn main() {
                        }
                    }
                }
+           } else {
+               log("An error has occured while reading a line");
+               run_vbs("error", "", "", "");
+               std::process::exit(1);
            }
        }
-       del("_GJIL.doc");
+   } else {
+       log("An error has occured while reading the file");
+       run_vbs("error", "", "", "");
+       std::process::exit(1);
    }
+   run_vbs("end", "", "", "");
 }
 
-fn write(j: i32, output: String) -> std::io::Result<()> {
-    let mut file = File::create(format!("{}{}{}", "./GJIL_TR_",j,".doc"))?;
+fn write(j: i32, output: String, file_path: &String) -> std::io::Result<()> {
+    let mut file = File::create(format!("{}{}{}{}", file_path, "/GJIL_TR_",j,".doc"))?;
     file.write_all(output.as_bytes())?;
     Ok(())
 }
 
-fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
+fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<encoding_rs_io::DecodeReaderBytes<File, Vec<u8>>>>>
 where P: AsRef<Path>, {
     let file = File::open(filename)?;
-    Ok(io::BufReader::new(file).lines())
+    Ok(io::BufReader::new(
+        DecodeReaderBytesBuilder::new()
+            .encoding(Some(WINDOWS_1252))
+            .build(file)).lines())
 }
 
 fn del(file: &str) -> std::io::Result<()> {
     std::fs::remove_file(file)?;
     Ok(())
+}
+
+fn get_path(current_path: &String) -> [String; 3] {
+    run_vbs("getPath", current_path, "", "");
+    let contents = std::fs::read_to_string("./config.txt")
+        .expect("An error has occured while reading the config file");
+    let split = contents.split("|SEP|");
+    let mut path: Vec<String> = Vec::new();
+    for i in split {
+        path.push(i.to_string().replace("\n", "").replace("\r", ""));
+    }
+    return [path[1].to_string(), path[2].to_string(), path[3].to_string()]
+}
+
+fn get_macro_result() -> bool {
+    let contents = std::fs::read_to_string("./log_macro.txt")
+        .expect("An error has occured while reading the config file");
+    if contents.trim() == "SUCCESS" {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+fn get_current_path() -> String {
+    match std::env::current_exe() {
+        Ok(v) => {
+            let result = format!("{:?}" ,v).replace("gjil_sep.exe","").replace('"', "");
+            return result;
+        },
+        Err(_e) => {
+            return String::from("fail")
+        }
+    }
+}
+
+fn run_vbs(arg0: &str, arg1: &str, arg2: &str, arg3: &str) {
+    let path = get_current_path();
+    let _output = Command::new("cmd")
+                    .args(&["/C", &format!("{}\\gjil_sep.vbs {} {} {} {}", path, arg0, arg1, arg2, arg3)])
+                    .output()
+                    .expect("failed to execute process");
+}
+
+fn visit_dirs(dir: &Path) -> io::Result<Vec<String>> {
+    let mut doc_list: Vec<String> = Vec::new();
+    if dir.is_dir() {
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_dir() {
+                let path = format!("{:?}", path).replace('"', "");
+                doc_list.push(path)
+            }
+        }
+    }
+    Ok(doc_list)
+}
+
+fn log(data: &str) {
+    println!("{}", data);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .append(true)
+        .create(true)
+        .open("./log.txt")
+        .unwrap();
+
+    if let Err(e) = writeln!(file, "{}", data) {
+        eprintln!("Couldn't write to file: {}", e);
+    }
+}
+
+fn reset_log() {
+    let _file = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open("./log.txt");
 }
