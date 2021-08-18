@@ -11,7 +11,7 @@ ElseIf WScript.Arguments(0) = "end" Then
 End If
 
 Sub macro(doc, name, path)
-  ' Rust return an additional \ at the beginning of a path string due to the \\ excape char
+  ' Rust return an additional \ at the beginning of a path string due to the \\ escape char
   path = Mid(path, 2)
   ' And eventually at the end too, in some conditions
   doc = Mid(doc, 2, Len(doc)-2)
@@ -37,7 +37,7 @@ Sub macro(doc, name, path)
 End Sub
 
 Sub rename(path)
-  ' Rust return an additional \ at the beginning of a path string due to the \\ excape char
+  ' Rust return an additional \ at the beginning of a path string due to the \\ escape char
   path = Mid(path, 2)
   ReadExcelFile = Null
 
@@ -52,7 +52,7 @@ Sub rename(path)
 End Sub
 
 Sub getPath(path)
-  ' Rust return an additional \ at the beginning of a path string due to the \\ excape char
+  ' Rust return an additional \ at the beginning of a path string due to the \\ escape char
   path = Mid(path, 2)
   Set objFileToWrite = CreateObject("Scripting.FileSystemObject").OpenTextFile(path & "\config.txt",2,true)
   objFileToWrite.WriteLine("//This file is automaticaly created, pls do not alter it")
