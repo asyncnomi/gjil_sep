@@ -77,7 +77,7 @@ fn main() {
                                _ => ()
                            }
                            log("Renaming...");
-                           run_vbs("rename", &current_path, "", ""); // Running the renaming macro
+                           run_vbs("rename", &format!("{}{}{}",'"',current_path,'"'), "", ""); // Running the renaming macro
                            log("Applying macro to :");
                            let list = visit_dirs(Path::new(&file_path[1])); // Get all the file in the input dir
                            if let Ok(list) = list {
@@ -95,7 +95,7 @@ fn main() {
                                        tmp_name.push_str(i);
                                        if !blacklist.contains(&tmp_name.to_string()) {
                                            log(&format!("trying: {}", tmp_name));
-                                           run_vbs("macro", path, &tmp_name, &current_path);
+                                           run_vbs("macro", &format!("{}{}{}",'"',path,'"'), &tmp_name, &format!("{}{}{}",'"',current_path,'"'));
                                            if get_macro_result() {
                                                log(&format!("Macro successfully found ({}) and apply to {}.doc", tmp_name, name));
                                                success = true;
@@ -207,7 +207,7 @@ fn del(file: &str) -> std::io::Result<()> {
 }
 
 fn get_path(current_path: &String) -> [String; 3] {
-    run_vbs("getPath", current_path, "", "");
+    run_vbs("getPath", &format!("{}{}{}",'"',current_path,'"'), "", "");
     let contents = std::fs::read_to_string("./config.txt")
         .expect("An error has occured while reading the config file");
     let split = contents.split("|SEP|");
